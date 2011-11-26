@@ -27,13 +27,15 @@ import struct
 
 import bson
 from bson.son import SON
-try:
-    from apymongo import _cbson
-    _use_c = True
-except ImportError:
-    _use_c = False
-from apymongo.errors import InvalidOperation
 
+try:
+    from pymongo import _cmessage
+except:
+    _use_c = False
+else:
+    _use_c = True
+
+from apymongo.errors import InvalidOperation
 
 __ZERO = "\x00\x00\x00\x00"
 
@@ -75,7 +77,7 @@ def insert(collection_name, docs, check_keys, safe, last_error_args):
     else:
         return __pack_message(2002, data)
 if _use_c:
-    insert = _cbson._insert_message
+    insert = _cmessage._insert_message
 
 
 def update(collection_name, upsert, multi, spec, doc, safe, last_error_args):
@@ -99,7 +101,7 @@ def update(collection_name, upsert, multi, spec, doc, safe, last_error_args):
     else:
         return __pack_message(2001, data)
 if _use_c:
-    update = _cbson._update_message
+    update = _cmessage._update_message
 
 
 def query(options, collection_name,
@@ -115,7 +117,7 @@ def query(options, collection_name,
         data += bson.BSON.encode(field_selector)
     return __pack_message(2004, data)
 if _use_c:
-    query = _cbson._query_message
+    query = _cmessage._query_message
 
 
 def get_more(collection_name, num_to_return, cursor_id):
@@ -127,7 +129,7 @@ def get_more(collection_name, num_to_return, cursor_id):
     data += struct.pack("<q", cursor_id)
     return __pack_message(2005, data)
 if _use_c:
-    get_more = _cbson._get_more_message
+    get_more = _cmessage._get_more_message
 
 
 def delete(collection_name, spec, safe, last_error_args):
