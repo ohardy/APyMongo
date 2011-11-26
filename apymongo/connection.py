@@ -42,6 +42,8 @@ import threading
 import time
 import warnings
 import functools
+import logging
+from threading import Condition
 
 import tornado.iostream
 
@@ -148,73 +150,138 @@ def receive_body_on_stream(operation,request_id,strm,callback,header):
                                        struct.unpack("<i", header[8:12])[0])
         assert operation == struct.unpack("<i", header[12:])[0]
 
+        strm.cache()
         strm.read_bytes(length-16,callback)
 
+class ConnectionStream(object):
+    """docstring for ConnectionStream"""
+    def __init__(self, pool, stream_factory):
+        super(ConnectionStream, self).__init__()
+        self.__pool           = pool
+        self.usage_count      = 0
+        self.__stream_factory = stream_factory
+        self.__stream         = None
 
-class _Pool(threading.local):
-    """A simple connection pool.
+    def cache(self):
+        """docstring for cache"""
+        self.__pool.cache(self)
 
-    Uses thread-local stream per thread. By calling return_stream() a
-    thread can return a stream to the pool. Right now the pool size is
-    capped at 10 streams - we can expose this as a parameter later, if
-    needed.
-    """
+    def use(self, callback):
+        """docstring for get"""
+        self.usage_count += 1
 
-    # Non thread-locals
-    __slots__ = ["streams", "stream_factory", "pool_size", "pid"]
+        def scallback(stream):
+            """docstring for scallback"""
+            if isinstance(stream, tornado.iostream.IOStream):
+                self.__stream = stream
+                callback(self)
+            else:
+                raise Exception()
 
-    # thread-local default
-    stream = None
-
-    def __init__(self, stream_factory):
-        self.pid = os.getpid()
-        self.pool_size = 10
-        self.stream_factory = stream_factory
-        if not hasattr(self, "streams"):
-            self.streams = []
-
-
-    def get_stream(self,callback):
-        # We use the pid here to avoid issues with fork / multiprocessing.
-        # See test.test_connection:TestConnection.test_fork for an example of
-        # what could go wrong otherwise
-        pid = os.getpid()
-
-        if pid != self.pid:
-            self.sock = None
-            self.streams = []
-            self.pid = pid
-
-        if self.stream is not None and self.stream[0] == pid:
-            callback(self.stream[1])
-
+        if self.__stream is None:
+            self.__stream_factory(scallback)
         else:
-            try:
-                self.stream = (pid, self.streams.pop())
-            except IndexError:
+            callback(self)
 
-                def stream_callback(strm):
-                    if not isinstance(strm,Exception):
-                        self.stream = (pid,strm)
-                    callback(strm)
+    def close(self):
+        """docstring for close"""
+        self.__stream.close()
 
-                self.stream_factory(stream_callback)
+    def write(self, *args, **kwargs):
+        """docstring for write"""
+        self.__stream.write(*args, **kwargs)
 
-            else:
-                callback(self.stream[1])
+    def read_bytes(self, *args, **kwargs):
+        """docstring for read_bytes"""
+        self.__stream.read_bytes(*args, **kwargs)
 
+class ConnectionStreamPool(object):
+    """Connection Pool to a single mongo instance.
 
-    def return_stream(self):
-        if self.stream is not None and self.stream[0] == os.getpid():
-            # There's a race condition here, but we deliberately
-            # ignore it.  It means that if the pool_size is 10 we
-            # might actually keep slightly more than that.
-            if len(self.streams) < self.pool_size:
-                self.streams.append(self.stream[1])
-            else:
-                self.stream[1].close()
-        self.stream = None
+    :Parameters:
+      - `mincached` (optional): minimum connections to open on instantiation. 0 to open connections on first use
+      - `maxcached` (optional): maximum inactive cached connections for this pool. 0 for unlimited
+      - `maxconnections` (optional): maximum open connections for this pool. 0 for unlimited
+      - `maxusage` (optional): number of requests allowed on a connection before it is closed. 0 for unlimited
+      - `dbname`: mongo database name
+      - `slave_okay` (optional): is it okay to connect directly to and perform queries on a slave instance
+      - `**kwargs`: passed to `connection.Connection`
 
+    """
+    def __init__(self, stream_factory, maxconnections=0):
+        assert isinstance(maxconnections, int)
+        self._maxconnections = maxconnections
+        self._condition      = Condition()
+        self._idle_cache     = []
+        self._maxusage       = 0
+        self._maxcached      = 0
+        self._connections    = 0
+        self.stream_factory  = stream_factory
+
+    def new_stream(self):
+        return ConnectionStream(self, self.stream_factory)
+
+    def stream(self):
+        """ get a cached connection from the pool """
+        self._condition.acquire()
+        try:
+            if (self._maxconnections and self._connections >= self._maxconnections):
+                raise Exception("%d connections are already equal to the max: %d" % (self._connections, self._maxconnections))
+            # connection limit not reached, get a dedicated connection
+            try: # first try to get it from the idle cache
+                strm = self._idle_cache.pop(0)
+            except IndexError: # else get a fresh connection
+                strm = self.new_stream()
+            self._connections += 1
+        finally:
+            self._condition.release()
+        return strm
+
+    def get_stream(self, callback):
+
+        def stream_callback(strm):
+            callback(strm)
+
+        self.stream().use(stream_callback)
+
+    def cache(self, strm):
+        """Put a dedicated connection back into the idle cache."""
+        if self._maxusage and strm.usage_count > self._maxusage:
+            self._connections -=1
+            logging.info('dropping connection %s uses past max usage %s' % (strm.usage_count, self._maxusage))
+            strm.close()
+            return
+        self._condition.acquire()
+        if strm in self._idle_cache:
+            # called via socket close on a connection in the idle cache
+            self._condition.release()
+            return
+        try:
+            if not self._maxcached or len(self._idle_cache) < self._maxcached:
+                # the idle cache is not full, so put it there
+                self._idle_cache.append(strm)
+            else: # if the idle cache is already full,
+                logging.info('dropping connection. connection pool (%s) is full. maxcached %s' % (len(self._idle_cache), self._maxcached))
+                strm.close() # then close the connection
+            self._condition.notify()
+        finally:
+            self._connections -= 1
+            self._condition.release()
+
+    def close(self):
+        """Close all connections in the pool."""
+        self._condition.acquire()
+        try:
+            while self._idle_cache: # close all idle connections
+                strm = self._idle_cache.pop(0)
+                try:
+                    strm.close()
+                except Exception:
+                    pass
+                self._connections -=1
+            self._condition.notifyAll()
+        finally:
+            self._condition.release()
 
 class Connection(object):  # TODO support auth for pooling
     """Connection to MongoDB.
@@ -336,7 +403,7 @@ class Connection(object):  # TODO support auth for pooling
 
         self.__cursor_manager = CursorManager(self)
 
-        self.__pool = _Pool(self.__connect)
+        self.__pool = ConnectionStreamPool(self.__connect)
         self.__last_checkout = time.time()
 
         self.__network_timeout = network_timeout
@@ -555,6 +622,8 @@ class Connection(object):  # TODO support auth for pooling
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             stream = tornado.iostream.IOStream(sock,self.__io_loop)
+            stream.set_close_callback(self._socket_close)
+            self.__alive = True
         except:
             self.disconnect()
             raise AutoReconnect("could not connect to %r" % list(self.__nodes))
@@ -566,7 +635,14 @@ class Connection(object):  # TODO support auth for pooling
             except:
                 callback(ConnectionFailure())
 
-
+    def _socket_close(self):
+        """docstring for _socket_close"""
+        print 'SOCKET CLOSE'
+        if self.__callback:
+            self.__callback(None, Exception('connection closed'))
+        self.__callback = None
+        self.__alive = False
+        self.__pool.cache(self)
 
     def __stream(self,callback):
         """Get a stream from the pool.
@@ -580,17 +656,7 @@ class Connection(object):  # TODO support auth for pooling
         can't avoid those completely anyway.
         """
 
-        def scallback(strm):
-            t = time.time()
-            if t - self.__last_checkout > 1 and strm._check_closed():
-                self.disconnect()
-                self.__pool.get_stream(scallback)
-            else:
-                self.__last_checkout = t
-                callback(strm)
-
-        self.__pool.get_stream(scallback)
-
+        self.__pool.get_stream(callback)
 
 
     def disconnect(self):
@@ -606,7 +672,7 @@ class Connection(object):  # TODO support auth for pooling
         .. seealso:: :meth:`end_request`
         .. versionadded:: 1.3
         """
-        self.__pool = _Pool(self.__connect)
+        self.__pool = ConnectionStreamPool(self.__connect)
         self.__host = None
         self.__port = None
 
@@ -679,7 +745,10 @@ class Connection(object):  # TODO support auth for pooling
 
 
         def send_callback(strm):
-            (request_id, data) = message
+            try:
+                (request_id, data, size) = message
+            except:
+                (request_id, data) = message
             try:
                 strm.write(data)
             except (ConnectionFailure,socket.error),e:
@@ -692,7 +761,7 @@ class Connection(object):  # TODO support auth for pooling
                         resp = self.__check_response_to_last_error(resp)
                         callback(resp)
 
-                    self.__receive_message_on_stream(1,request_d,strm,callback=mod_callback)
+                    self.__receive_message_on_stream(1,request_id,strm,callback=mod_callback)
                 elif callback:
                      callback(None)
 
@@ -711,17 +780,17 @@ class Connection(object):  # TODO support auth for pooling
 
 
 
-    def __send_and_receive(self, message, callback,strm):
+    def __send_and_receive(self, message, callback, strm):
         """Send a message on the given socket and pass the response data to the callback.
         """
-        (request_id, data) = message
+        try:
+            (request_id, data, size) = message
+        except:
+            (request_id, data) = message
 
-        if isinstance(strm,Exception):
-
+        if isinstance(strm, Exception):
             callback(strm)
-
         else:
-
             strm.write(data)
             self.__receive_message_on_stream(1, request_id, strm, callback)
 
@@ -765,7 +834,8 @@ class Connection(object):  # TODO support auth for pooling
         finished, as otherwise its :class:`~socket.socket` will not be
         reclaimed.
         """
-        self.__pool.return_stream()
+        pass
+        # self.__pool.return_stream()
 
     def __cmp__(self, other):
         if isinstance(other, Connection):
