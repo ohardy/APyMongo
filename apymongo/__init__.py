@@ -16,12 +16,10 @@
 
 from apymongo.connection import Connection as APyMongo_Connection
 
-ASCENDING = 1
-"""Ascending sort order."""
-DESCENDING = -1
-"""Descending sort order."""
+from consts import ASCENDING
+from consts import DESCENDING
+from consts import GEO2D
 
-GEO2D = "2d"
 """Index specifier for a 2-dimensional `geospatial index`_.
 
 .. versionadded:: 1.5.1
@@ -48,7 +46,7 @@ Connection = APyMongo_Connection
 
 def has_c():
     """Is the C extension installed?
-
+    
     .. versionadded:: 1.5
     """
     try:
