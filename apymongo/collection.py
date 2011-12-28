@@ -19,8 +19,9 @@ import functools
 
 from bson.code import Code
 from bson.son import SON
-from apymongo import (helpers,
-                     message)
+from apymongo import helpers
+from apymongo import message
+
 from apymongo.cursor import Cursor
 from apymongo.errors import InvalidName
 
@@ -36,10 +37,10 @@ def _gen_index_name(keys):
 class Collection(object):
     """A Mongo collection.
     """
-
+    
     def __init__(self, database, name, options=None, create=False, **kwargs):
         """Get / create a Mongo collection.
-
+        
         Raises :class:`TypeError` if `name` is not an instance of
         :class:`basestring`. Raises
         :class:`~pymongo.errors.InvalidName` if `name` is not a valid
@@ -47,12 +48,12 @@ class Collection(object):
         as options passed to the create command. See
         :meth:`~pymongo.database.Database.create_collection` for valid
         options.
-
+        
         If `create` is ``True`` or additional keyword arguments are
         present a create command will be sent. Otherwise, a create
         command will not be sent and the collection will be created
         implicitly on first use.
-
+        
         :Parameters:
           - `database`: the database to get a collection from
           - `name`: the name of the collection to get
@@ -61,17 +62,17 @@ class Collection(object):
             creation even without options being set
           - `**kwargs` (optional): additional keyword arguments will
             be passed as options for the create collection command
-
+        
         .. versionchanged:: 1.5
            deprecating `options` in favor of kwargs
         .. versionadded:: 1.5
            the `create` parameter
-
+        
         .. mongodoc:: collections
         """
         if not isinstance(name, basestring):
             raise TypeError("name must be an instance of basestring")
-
+        
         if options is not None:
             warnings.warn("the options argument to Collection is deprecated "
                           "and will be removed. please use kwargs instead.",
@@ -81,7 +82,7 @@ class Collection(object):
             options.update(kwargs)
         elif kwargs:
             options = kwargs
-
+        
         if not name or ".." in name:
             raise InvalidName("collection names cannot be empty")
         if "$" in name and not (name.startswith("oplog.$main") or
@@ -94,17 +95,17 @@ class Collection(object):
         if "\x00" in name:
             raise InvalidName("collection names must not contain the "
                               "null character")
-
+        
         self.__database = database
         self.__name = unicode(name)
         self.__full_name = u"%s.%s" % (self.__database.name, self.__name)
         if create or options is not None:
             self.__create(options)
-
+    
     def __create(self, options):
         """Sends a create command with the given options.
         """
-
+        
         # Send size as a float, not an int/long. BSON can only handle 32-bit
         # ints which conflicts w/ max collection size of 10000000000.
         if options:
@@ -113,84 +114,84 @@ class Collection(object):
             self.__database.command("create", value = self.__name, **options)
         else:
             self.__database.command("create", value = self.__name)
-
+    
     def __getattr__(self, name):
         """Get a sub-collection of this collection by name.
-
+        
         Raises InvalidName if an invalid collection name is used.
-
+        
         :Parameters:
           - `name`: the name of the collection to get
         """
         return Collection(self.__database, u"%s.%s" % (self.__name, name))
-
+    
     def __getitem__(self, name):
         return self.__getattr__(name)
-
+    
     def __repr__(self):
         return "Collection(%r, %r)" % (self.__database, self.__name)
-
+    
     def __cmp__(self, other):
         if isinstance(other, Collection):
             return cmp((self.__database, self.__name),
                        (other.__database, other.__name))
         return NotImplemented
-
+    
     @property
     def full_name(self):
         """The full name of this :class:`Collection`.
-
+        
         The full name is of the form `database_name.collection_name`.
-
+        
         .. versionchanged:: 1.3
            ``full_name`` is now a property rather than a method.
         """
         return self.__full_name
-
+    
     @property
     def name(self):
         """The name of this :class:`Collection`.
-
+        
         .. versionchanged:: 1.3
            ``name`` is now a property rather than a method.
         """
         return self.__name
-
+    
     @property
     def database(self):
         """The :class:`~pymongo.database.Database` that this
         :class:`Collection` is a part of.
-
+        
         .. versionchanged:: 1.3
            ``database`` is now a property rather than a method.
         """
         return self.__database
-
+    
     def save(self, to_save, callback=None,manipulate=True, safe=False, **kwargs):
         """Save a document in this collection.
-
+        
         If `to_save` already has an ``"_id"`` then an :meth:`update`
         (upsert) operation is performed and any existing document with
         that ``"_id"`` is overwritten.  Otherwise an ``"_id"`` will be
         added to `to_save` and an :meth:`insert` operation is
-        performed.  
+        performed.
         
-        If the save succeeds, it passes ``"_id"`` of the saved document 
-        to the callback function.  Otherwise, what gets passed is an 
+        If the save succeeds, it passes ``"_id"`` of the saved document
+        to the callback function.  Otherwise, what gets passed is an
         Exception object:
-
+        
         Passes :class:`TypeError` if `to_save` is not an instance of
         :class:`dict`. If `safe` is ``True`` then the save will be
         checked for errors, passing
         :class:`~apymongo.errors.OperationFailure` if one
         occurred. Safe inserts wait for a response from the database,
         while normal inserts do not.
-
+        
         Any additional keyword arguments imply ``safe=True``, and will
         be used as options for the resultant `getLastError`
         command. For example, to wait for replication to 3 nodes, pass
         ``w=3``.
-
+        
         :Parameters:
           - `to_save`: the document to be saved
           - `manipulate` (optional): manipulate the document before
@@ -199,13 +200,13 @@ class Collection(object):
           - `**kwargs` (optional): any additional arguments imply
             ``safe=True``, and will be used as options for the
             `getLastError` command
-
+        
         .. mongodoc:: insert
         """
         if not isinstance(to_save, dict):
             raise TypeError("cannot save object of type %s" % type(to_save))
-            
-      
+        
+        
         if "_id" not in to_save:
             self.insert(to_save, manipulate, safe, callback=callback, **kwargs)
         else:
@@ -214,15 +215,15 @@ class Collection(object):
                     callback( to_save.get("_id", None) )
             else:
                 mod_callback = None
-                 
+            
             self.update({"_id": to_save["_id"]}, to_save, True,
                         manipulate, safe, callback=mod_callback **kwargs)
-           
-
+    
+    
     def insert(self, doc_or_docs,
                manipulate=True, safe=False, check_keys=True, callback=None, **kwargs):
         """Insert a document(s) into this collection.
-
+        
         If `manipulate` is set, the document(s) are manipulated using
         any :class:`~pymongo.son_manipulator.SONManipulator` instances
         that have been added to this
@@ -230,17 +231,17 @@ class Collection(object):
         the inserted document or a list of ``"_id"`` values of the
         inserted documents to the callback upon success.
         If the document(s) does not already contain an ``"_id"`` one will be added.
-
+        
         If `safe` is ``True`` then the insert will be checked for
         errors, passing :class:`~apymongo.errors.OperationFailure` instance
         to the callback if one occurred. Safe inserts wait for a response from the
         database, while normal inserts do not.
-
+        
         Any additional keyword arguments imply ``safe=True``, and
         will be used as options for the resultant `getLastError`
         command. For example, to wait for replication to 3 nodes, pass
         ``w=3``.
-
+        
         :Parameters:
           - `doc_or_docs`: a document or list of documents to be
             inserted
@@ -253,7 +254,7 @@ class Collection(object):
           - `**kwargs` (optional): any additional arguments imply
             ``safe=True``, and will be used as options for the
             `getLastError` command
-            
+        
         .. mongodoc:: insert
         """
         docs = doc_or_docs
@@ -261,29 +262,29 @@ class Collection(object):
         if isinstance(docs, dict):
             return_one = True
             docs = [docs]
-
+        
         if manipulate:
             docs = [self.__database._fix_incoming(doc, self) for doc in docs]
-
+        
         if kwargs:
             safe = True
-            
+        
         if callback:
             def mod_callback(result):
                 ids = [doc.get("_id", None) for doc in docs]
                 callback(return_one and ids[0] or ids)
         else:
             mod_callback = None
-               
+        
         self.__database.connection._send_message(
             message.insert(self.__full_name, docs,
                            check_keys, safe, kwargs), with_last_error=safe,callback=mod_callback)
-
-
+    
+    
     def update(self, spec, document, upsert=False, manipulate=False,
-               safe=False, multi=False,callback=None, **kwargs):
+               safe=False, multi=False, callback=None, **kwargs):
         """Update a document(s) in this collection.
-
+        
         Passes :class:`TypeError` if either `spec` or `document` is
         not an instance of ``dict`` or `upsert` is not an instance of
         ``bool``. If `safe` is ``True`` then the update will be
@@ -292,15 +293,15 @@ class Collection(object):
         occurred. Safe updates require a response from the database,
         while normal updates do not - thus, setting `safe` to ``True``
         will negatively impact performance.
-
+        
         If `safe` is ``True`` returns the response to the *lastError*
         command. Otherwise, returns ``None``.
-
+        
         Any additional keyword arguments imply ``safe=True``, and will
         be used as options for the resultant `getLastError`
         command. For example, to wait for replication to 3 nodes, pass
         ``w=3``.
-
+        
         :Parameters:
           - `spec`: a ``dict`` or :class:`~bson.son.SON` instance
             specifying elements which must be present for a document
@@ -325,9 +326,9 @@ class Collection(object):
           - `**kwargs` (optional): any additional arguments imply
             ``safe=True``, and will be used as options for the
             `getLastError` command
-
+        
         .. _update modifiers: http://www.mongodb.org/display/DOCS/Updating
-
+        
         .. mongodoc:: update
         """
         if not isinstance(spec, dict):
@@ -336,53 +337,51 @@ class Collection(object):
             raise TypeError("document must be an instance of dict")
         if not isinstance(upsert, bool):
             raise TypeError("upsert must be an instance of bool")
-
+        
         if upsert and manipulate:
             document = self.__database._fix_incoming(document, self)
-
+        
         if kwargs:
             safe = True
-
-        self.__database.connection._send_message(
-            message.update(self.__full_name, upsert, multi,
-                           spec, document, safe, kwargs), with_last_error = safe, callback=callback)
-
+        
+        self.__database.connection._send_message(message.update(self.__full_name, upsert, multi, spec, document, safe, kwargs), with_last_error = safe, callback=callback)
+    
     def drop(self):
         """Alias for :meth:`~pymongo.database.Database.drop_collection`.
-
+        
         The following two calls are equivalent:
-
+          
           >>> db.foo.drop()
           >>> db.drop_collection("foo")
-
+        
         """
         self.__database.drop_collection(self.__name)
-
+    
     def remove(self, spec_or_id=None, safe=False, callback=None,**kwargs):
         """Remove a document(s) from this collection.
-
+        
         .. warning:: Calls to :meth:`remove` should be performed with
            care, as removed data cannot be restored.
-
+        
         If `safe` is ``True`` then the remove operation will be
         checked for errors, passing
         :class:`~pymongo.errors.OperationFailure` if one
         occurred. Safe removes wait for a response from the database,
         while normal removes do not.
-
+        
         If `spec_or_id` is ``None``, all documents in this collection
         will be removed. This is not equivalent to calling
         :meth:`~apymongo.database.Database.drop_collection`, however,
         as indexes will not be removed.
-
+        
         If `safe` is ``True`` passes the response to the *lastError*
         command. Otherwise, passes ``None`` to the callback.
-
+        
         Any additional keyword arguments imply ``safe=True``, and will
         be used as options for the resultant `getLastError`
         command. For example, to wait for replication to 3 nodes, pass
         ``w=3``.
-
+        
         :Parameters:
           - `spec_or_id` (optional): a dictionary specifying the
             documents to be removed OR any other type specifying the
@@ -391,75 +390,75 @@ class Collection(object):
           - `**kwargs` (optional): any additional arguments imply
             ``safe=True``, and will be used as options for the
             `getLastError` command
-
+        
         .. mongodoc:: remove
         """
         if spec_or_id is None:
             spec_or_id = {}
         if not isinstance(spec_or_id, dict):
             spec_or_id = {"_id": spec_or_id}
-
+        
         if kwargs:
             safe = True
-
+        
         self.__database.connection._send_message(
             message.delete(self.__full_name, spec_or_id, safe, kwargs), with_last_error=safe,callback=callback)
-
+    
     def find_one(self, spec_or_id = None, callback=None,  *args, **kwargs):
         """Get a single document from the database.
-
+        
         All arguments to :meth:`find` are also valid arguments for
         :meth:`find_one`, although any `limit` argument will be
         ignored. Passes  a single document, or ``None`` if no matching
         document is found, to the callback.
-
+        
         :Parameters:
-
+          
           - `spec_or_id` (optional): a dictionary specifying
             the query to be performed OR any other type to be used as
             the value for a query for ``"_id"``.
-
+          
           - `*args` (optional): any additional positional arguments
             are the same as the arguments to :meth:`find`.
-
+          
           - `**kwargs` (optional): any additional keyword arguments
             are the same as the arguments to :meth:`find`.
-
+        
         """
         if spec_or_id is not None and not isinstance(spec_or_id, dict):
             spec_or_id = {"_id": spec_or_id}
-            
-        def mod_callback(resp):
         
+        def mod_callback(resp):
+            
             if isinstance(resp,Exception):
                 callback(resp)
             elif resp:
                 callback(resp[0])
             else:
-                callback(None)                 
+                callback(None)
         
         self.find(spec=spec_or_id, callback = mod_callback, *args, **kwargs).limit(-1).loop()
-        
-        
+    
+    
     def find(self, *args, **kwargs):
         """Query the database.
-
+        
         The `spec` argument is a prototype document that all results
         must match. For example:
-
+        
         >>> db.test.find({"hello": "world"})
-
+        
         only matches documents that have a key "hello" with value
         "world".  Matches can have other keys *in addition* to
         "hello". The `fields` argument is used to specify a subset of
         fields that should be included in the result documents. By
         limiting results to a certain subset of fields you can cut
         down on network traffic and decoding time.
-
+        
         Raises :class:`TypeError` if any of the arguments are of
         improper type. Returns an instance of
         :class:`~pymongo.cursor.Cursor` corresponding to this query.
-
+        
         :Parameters:
           - `spec` (optional): a SON object specifying elements which
             must be present for a document to be included in the
@@ -501,69 +500,69 @@ class Collection(object):
           - `network_timeout` (optional): specify a timeout to use for
             this query, which will override the
             :class:`~pymongo.connection.Connection`-level default
-
+        
         .. note:: The `max_scan` parameter requires server
            version **>= 1.5.1**
-
+        
         .. mongodoc:: find
         """
         return Cursor(self, *args, **kwargs)
-
-
+    
+    
     def count(self,callback):
         """Get the number of documents in this collection.
-
+        
         To get the number of documents matching a specific query use
         :meth:`apymongo.cursor.Cursor.count`.
         
         """
         return self.find(callback=callback).count()
-        
-        
+    
+    
     def distinct(self, key, callback):
         """Get a list of distinct values for `key` among all documents
         in this collection.
-
+        
         Raises :class:`TypeError` if `key` is not an instance of
         :class:`basestring`.
-
+        
         To get the distinct values for a key in the result set of a
         query use :meth:`~apymongo.cursor.Cursor.distinct`.
-
+        
         :Parameters:
           - `key`: name of key for which we want to get the distinct values
-
+        
         .. note:: Requires server version **>= 1.1.0**
-
+        
         """
         return self.find(callback=callback).distinct(key)
-        
-        
-
+    
+    
+    
     def create_index(self, key_or_list, deprecated_unique=None,
                      ttl=300, callback = None, **kwargs):
         """Creates an index on this collection.
-
+        
         Takes either a single key or a list of (key, direction) pairs.
         The key(s) must be an instance of :class:`basestring`, and the
         directions must be one of (:data:`~apymongo.ASCENDING`,
         :data:`~apymongo.DESCENDING`, :data:`~apymongo.GEO2D`). Returns
         the name of the created index.
-
+        
         To create a single key index on the key ``'mike'`` we just use
         a string argument:
-
+        
         >>> my_collection.create_index("mike")
-
+        
         For a compound index on ``'mike'`` descending and ``'eliot'``
         ascending we need to use a list of tuples:
-
+        
         >>> my_collection.create_index([("mike", pymongo.DESCENDING),
         ...                             ("eliot", pymongo.ASCENDING)])
-
+        
         All optional index creation paramaters should be passed as
         keyword arguments to this method. Valid options include:
-
+          
           - `name`: custom name to use for this index - if none is
             given, a name will be generated
           - `unique`: should this index guarantee uniqueness?
@@ -573,7 +572,7 @@ class Collection(object):
             index
           - `max`: maximum value for keys in a :data:`~pymongo.GEO2D`
             index
-
+        
         :Parameters:
           - `key_or_list`: a single key or a list of (key, direction)
             pairs specifying the index to create
@@ -585,28 +584,28 @@ class Collection(object):
           - `**kwargs` (optional): any additional index creation
             options (see the above list) should be passed as keyword
             arguments
-
+        
         .. seealso:: :meth:`ensure_index`
-
+        
         .. mongodoc:: indexes
         """
         keys = helpers._index_list(key_or_list)
         index_doc = helpers._index_document(keys)
-
+        
         index = {"key": index_doc, "ns": self.__full_name}
-
+        
         if deprecated_unique is not None:
             warnings.warn("using a positional arg to specify unique is "
                           "deprecated, please use kwargs",
                           DeprecationWarning)
             index["unique"] = deprecated_unique
-
+        
         name = "name" in kwargs and kwargs["name"] or _gen_index_name(keys)
         index["name"] = name
-
+        
         if "drop_dups" in kwargs:
             kwargs["dropDups"] = kwargs.pop("drop_dups")
-
+        
         index.update(kwargs)
         
         
@@ -622,23 +621,23 @@ class Collection(object):
                     callback(resp)
                 else:
                     raise resp
-                
-
+        
+        
         self.__database.system.indexes.insert(index, manipulate=False,
                                               check_keys=False,
                                               safe=True,callback = mod_callback)
-
-
+    
+    
     def ensure_index(self, key_or_list, callback=None,deprecated_unique=None,
                      ttl=300, **kwargs):
         """Ensures that an index exists on this collection.
-
+        
         Takes either a single key or a list of (key, direction) pairs.
         The key(s) must be an instance of :class:`basestring`, and the
         direction(s) must be one of (:data:`~pymongo.ASCENDING`,
         :data:`~pymongo.DESCENDING`, :data:`~pymongo.GEO2D`). See
         :meth:`create_index` for a detailed example.
-
+        
         Unlike :meth:`create_index`, which attempts to create an index
         unconditionally, :meth:`ensure_index` takes advantage of some
         caching within the driver such that it only attempts to create
@@ -647,20 +646,20 @@ class Collection(object):
         seconds. Repeated calls to :meth:`ensure_index` within that
         time limit will be lightweight - they will not attempt to
         actually create the index.
-
+        
         Care must be taken when the database is being accessed through
         multiple connections at once. If an index is created using
         APyMongo and then deleted using another connection any call to
         :meth:`ensure_index` within the cache window will fail to
         re-create the missing index.
-
+        
         Passes the name of the created index to the callback if an index is actually
         created. Passes ``None`` if the index already exists.  Otherwise, passes
         whatever errors are encountered.
-
+        
         All optional index creation paramaters should be passed as
         keyword arguments to this method. Valid options include:
-
+          
           - `name`: custom name to use for this index - if none is
             given, a name will be generated
           - `unique`: should this index guarantee uniqueness?
@@ -672,7 +671,7 @@ class Collection(object):
             index
           - `max`: maximum value for keys in a :data:`~pymongo.GEO2D`
             index
-
+        
         :Parameters:
           - `key_or_list`: a single key or a list of (key, direction)
             pairs specifying the index to create
@@ -683,7 +682,7 @@ class Collection(object):
           - `**kwargs` (optional): any additional index creation
             options (see the above list) should be passed as keyword
             arguments
-
+        
         .. seealso:: :meth:`create_index`
         """
         if "name" in kwargs:
@@ -691,59 +690,59 @@ class Collection(object):
         else:
             keys = helpers._index_list(key_or_list)
             name = kwargs["name"] = _gen_index_name(keys)
-
+        
         if self.__database.connection._cache_index(self.__database.name,
                                                    self.__name, name, ttl):
             self.create_index(key_or_list, deprecated_unique = deprecated_unique,
                                      ttl = ttl, callback = callback, **kwargs)
         elif callback:
             callback(None)
-
-
+    
+    
     def drop_indexes(self):
         """Drops all indexes on this collection.
-
+        
         Can be used on non-existant collections or collections with no indexes.
         Raises OperationFailure on an error.
         """
         self.__database.connection._purge_index(self.__database.name,
                                                 self.__name)
         self.drop_index(u"*")
-
-
+    
+    
     def drop_index(self, index_or_name):
         """Drops the specified index on this collection.
-
+        
         Can be used on non-existant collections or collections with no
         indexes.  Raises OperationFailure on an error. `index_or_name`
         can be either an index name (as returned by `create_index`),
         or an index specifier (as passed to `create_index`). An index
         specifier should be a list of (key, direction) pairs. Raises
         TypeError if index is not an instance of (str, unicode, list).
-
+        
         .. warning:: if a custom name was used on index creation (by
           passing the `name` parameter to :meth:`create_index` or
           :meth:`ensure_index`) the index **must** be dropped by name.
-
+        
         :Parameters:
           - `index_or_name`: index (or name of index) to drop
         """
         name = index_or_name
         if isinstance(index_or_name, list):
             name = _gen_index_name(index_or_name)
-
+        
         if not isinstance(name, basestring):
             raise TypeError("index_or_name must be an index name or list")
-
+        
         self.__database.connection._purge_index(self.__database.name,
                                                 self.__name, name)
         self.__database.command("dropIndexes", value = self.__name, index=name,
                                 allowable_errors=["ns not found"])
-                                
-
+    
+    
     def index_information(self,callback):
         """Get information on this collection's indexes.
-
+        
         Passes to the callback a dictionary where the keys are index names (as
         returned by create_index()) and the values are dictionaries
         containing information about each index. The dictionary is
@@ -753,7 +752,7 @@ class Collection(object):
         information in `system.indexes`, except for the ``"ns"`` and
         ``"name"`` keys, which are cleaned. Example output might look
         like this:
-
+        
         >>> db.test.ensure_index("x", unique=True)
         u'x_1'
         >>> db.test.index_information(callback)
@@ -761,8 +760,8 @@ class Collection(object):
         The result passed to the callback would be:
         {u'_id_': {u'key': [(u'_id', 1)]},
          u'x_1': {u'unique': True, u'key': [(u'x', 1)]}}
-
-
+        
+        
         """
         
         def mod_callback(raw):
@@ -774,14 +773,14 @@ class Collection(object):
             callback( info )
         
         self.__database.system.indexes.find(spec={"ns": self.__full_name},
-                                            fields={"ns": 0}, 
-                                            callback = mod_callback, 
+                                            fields={"ns": 0},
+                                            callback = mod_callback,
                                             as_class=SON).loop()
-
-
+    
+    
     def options(self,callback):
         """Get the options set on this collection.
-
+        
         Passes to the callback a dictionary of options and their values - see
         :meth:`~apymongo.database.Database.create_collection` for more
         information on the possible options. Passes an empty
@@ -791,34 +790,34 @@ class Collection(object):
         def mod_callback(result):
             if not result:
                 callback({})
-    
+            
             options = result.get("options", {})
             if "create" in options:
                 del options["create"]
-    
+            
             callback( options )
         
         self.__database.system.namespaces.find_one(
             {"name": self.__full_name},callback=mod_callback)
-
-
-
+    
+    
+    
     # TODO key and condition ought to be optional, but deprecation
     # could be painful as argument order would have to change.
     def group(self, callback, key, condition, initial, reduce, finalize=None,
               command=True):
         """Perform a query similar to an SQL *group by* operation.
-
+        
         Passes to the callback an array of grouped items.
-
+        
         The `key` parameter can be:
-
+          
           - ``None`` to use the entire document as a key.
           - A :class:`list` of keys (each a :class:`basestring`) to group by.
           - A :class:`basestring` or :class:`~bson.code.Code` instance
             containing a JavaScript function to be applied to each
             document, returning the key to group by.
-
+        
         :Parameters:
           - `key`: fields to group by (see above description)
           - `condition`: specification of rows to be
@@ -829,13 +828,13 @@ class Collection(object):
           - `command` (optional): DEPRECATED if ``True``, run the group as a
             command instead of in an eval - this option is deprecated and
             will be removed in favor of running all groups as commands
-
+       
        """
         if not command:
             warnings.warn("eval-based groups are deprecated, and the "
                           "command option will be removed.",
                           DeprecationWarning)
-
+        
         group = {}
         if isinstance(key, basestring):
             group["$keyf"] = Code(key)
@@ -847,22 +846,22 @@ class Collection(object):
         group["initial"] = initial
         if finalize is not None:
             group["finalize"] = Code(finalize)
-
+        
         def mod_callback(resp):
             callback(resp["retval"])
         
         self.__database.command("group", callback=mod_callback, value = group)
-        
-
+    
+    
     def rename(self, new_name, **kwargs):
         """Rename this collection.
-
+        
         If operating in auth mode, client must be authorized as an
         admin to perform this operation. Raises :class:`TypeError` if
         `new_name` is not an instance of :class:`basestring`. Raises
         :class:`~pymongo.errors.InvalidName` if `new_name` is not a
         valid collection name.
-
+        
         :Parameters:
           - `new_name`: new name for this collection
           - `**kwargs` (optional): any additional rename options
@@ -871,29 +870,29 @@ class Collection(object):
        """
         if not isinstance(new_name, basestring):
             raise TypeError("new_name must be an instance of basestring")
-
+        
         if not new_name or ".." in new_name:
             raise InvalidName("collection names cannot be empty")
         if new_name[0] == "." or new_name[-1] == ".":
             raise InvalidName("collecion names must not start or end with '.'")
         if "$" in new_name and not new_name.startswith("oplog.$main"):
             raise InvalidName("collection names must not contain '$'")
-
+        
         new_name = "%s.%s" % (self.__database.name, new_name)
         self.__database.connection.admin.command("renameCollection",
                                                  value = self.__full_name,
                                                  to=new_name, **kwargs)
-
-
-
-    def map_reduce(self, callback, map, reduce, full_response=False, **kwargs):
+    
+    
+    
+    def map_reduce(self, callback, map, reduce, out, full_response=False, **kwargs):
         """Perform a map/reduce operation on this collection.
-
+        
         If `full_response` is ``False`` (default), it passes to the callback a
         :class:`~apymongo.collection.Collection` instance containing
         the results of the operation. Otherwise, passes the full
         response from the server to the `map reduce command`_.
-
+        
         :Parameters:
           - `map`: map function (as a JavaScript string)
           - `reduce`: reduce function (as a JavaScript string)
@@ -902,42 +901,46 @@ class Collection(object):
           - `**kwargs` (optional): additional arguments to the
             `map reduce command`_ may be passed as keyword arguments to this
             helper method, e.g.::
-
+            
             >>> db.test.map_reduce(callback, map, reduce, limit=2)
-
+        
         .. note:: Requires server version **>= 1.1.1**
-
+        
         .. seealso:: :doc:`/examples/map_reduce`
-
+        
         .. _map reduce command: http://www.mongodb.org/display/DOCS/MapReduce
-
+        
         .. mongodoc:: mapreduce
         """
         
         def mod_callback(response):
             if full_response:
                 callback(response)
+            
+            # print response
+            
+            
             callback(self.__database[response["result"]])
-            
-            
+        
+        
         self.__database.command("mapreduce", callback = mod_callback, value=self.__name,
-                                           map=map, reduce=reduce, **kwargs)
-
-
-
+                                           map=map, reduce=reduce, out=out, **kwargs)
+    
+    
+    
     def find_and_modify(self, callback, query={}, update=None, upsert=False, **kwargs):
         """Update and return an object.
-
+        
         This is a thin wrapper around the findAndModify_ command. The
         positional arguments are designed to match the first three arguments
         to :meth:`update` however most options should be passed as named
         parameters. Either `update` or `remove` arguments are required, all
         others are optional.
-
+        
         Passes to the callback either the object before or after modification based on `new`
         parameter. If no objects match the `query` and `upsert` is false,
         returns ``None``. If upserting and `new` is false, returns ``{}``.
-
+        
         :Parameters:
             - `query`: filter for the update (default ``{}``)
             - `sort`: priority if multiple objects match (default ``{}``)
@@ -949,28 +952,28 @@ class Collection(object):
             - `upsert`: insert if object doesn't exist (default ``False``)
             - `**kwargs`: any other options the findAndModify_ command
               supports can be passed here.
-
-
+        
+        
         .. mongodoc:: findAndModify
-
+        
         .. _findAndModify: http://dochub.mongodb.org/core/findAndModify
-
+        
         .. note:: Requires server version **>= 1.3.0**
-
+        
         """
         if (not update and not kwargs.get('remove', None)):
             raise ValueError("Must either update or remove")
-
+        
         if (update and kwargs.get('remove', None)):
             raise ValueError("Can't do both update and remove")
-
+        
         # No need to include empty args
         if query: kwargs['query'] = query
         if update: kwargs['update'] = update
         if upsert: kwargs['upsert'] = upsert
-
+        
         no_obj_error = "No matching object found"
-
+        
         def mod_callback(out):
             if not out['ok']:
                 if out["errmsg"] == no_obj_error:
@@ -978,19 +981,19 @@ class Collection(object):
                 else:
                     # Should never get here b/c of allowable_errors
                     callback( ValueError("Unexpected Error: %s"%out) )
-
+            
             callback( out['value'] )
         
         self.__database.command("findAndModify", callback = mod_callback, value = self.__name,
                 allowable_errors=[no_obj_error], **kwargs)
-
-
+    
+    
     def __iter__(self):
         return self
-
+    
     def next(self):
         raise TypeError("'Collection' object is not iterable")
-
+    
     def __call__(self, *args, **kwargs):
         """This is only here so that some API misusages are easier to debug.
         """
