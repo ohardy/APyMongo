@@ -28,12 +28,13 @@ import struct
 import bson
 from bson.son import SON
 
-try:
-    from pymongo import _cmessage
-except:
-    _use_c = False
-else:
-    _use_c = True
+_use_c = False
+
+# try:
+#     from pymongo import _cmessage
+#     print _cmessage.__file__
+# else:
+#     _use_c = True
 
 from apymongo.errors import InvalidOperation
 
@@ -50,7 +51,7 @@ def __last_error(args):
 
 def __pack_message(operation, data):
     """Takes message data and adds a message header based on the operation.
-
+    
     Returns the resultant message string.
     """
     request_id = random.randint(-2 ** 31 - 1, 2 ** 31)
@@ -88,7 +89,7 @@ def update(collection_name, upsert, multi, spec, doc, safe, last_error_args):
         options += 1
     if multi:
         options += 2
-
+    
     data = __ZERO
     data += bson._make_c_string(collection_name)
     data += struct.pack("<i", options)
