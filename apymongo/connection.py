@@ -637,12 +637,10 @@ class Connection(object):  # TODO support auth for pooling
 
     def _socket_close(self):
         """docstring for _socket_close"""
-        print 'SOCKET CLOSE'
         if self.__callback:
             self.__callback(None, Exception('connection closed'))
         self.__callback = None
         self.__alive = False
-        self.__pool.cache(self)
 
     def __stream(self,callback):
         """Get a stream from the pool.
