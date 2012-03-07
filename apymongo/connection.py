@@ -176,7 +176,7 @@ class ConnectionStream(object):
                 self.__stream = stream
                 callback(self)
             else:
-                raise Exception()
+                raise Exception('stream is %s' % (type(tornado.iostream.IOStream), ))
 
         if self.__stream is None:
             self.__stream_factory(scallback)
