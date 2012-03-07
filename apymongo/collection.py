@@ -919,8 +919,11 @@ class Collection(object):
             
             # print response
             
-            
-            callback(self.__database[response["result"]])
+            try:
+                callback(self.__database[response["result"]])
+            except Exception as e:
+                print response
+                raise
         
         
         self.__database.command("mapreduce", callback = mod_callback, value=self.__name,
