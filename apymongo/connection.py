@@ -208,15 +208,21 @@ class ConnectionStreamPool(object):
       - `**kwargs`: passed to `connection.Connection`
 
     """
-    def __init__(self, stream_factory, maxconnections=0):
+    def __init__(self, stream_factory, mincached=0, maxcached=0, maxconnections=0, maxusage=0, maxconnections=0):
         assert isinstance(maxconnections, int)
         self._maxconnections = maxconnections
         self._condition      = Condition()
         self._idle_cache     = []
-        self._maxusage       = 0
-        self._maxcached      = 0
+        self._mincached      = maxcached
+        self._maxcached      = maxcached
+        self._maxusage       = maxusage
+        self._maxconnections = maxconnections
         self._connections    = 0
         self.stream_factory  = stream_factory
+        
+    def check_nb_cached(self):
+        """docstring for check_nb_cached"""
+        pass
 
     def new_stream(self):
         return ConnectionStream(self, self.stream_factory)
@@ -384,7 +390,7 @@ class Connection(object):  # TODO support auth for pooling
 
         self.__host = None
         self.__port = None
-
+        
         self.__io_loop = io_loop
 
         if options.has_key("slaveok"):
@@ -621,7 +627,7 @@ class Connection(object):  # TODO support auth for pooling
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            stream = tornado.iostream.IOStream(sock,self.__io_loop)
+            stream = tornado.iostream.IOStream(sock, self.__io_loop)
             stream.set_close_callback(self._socket_close)
             self.__alive = True
         except:
@@ -637,9 +643,6 @@ class Connection(object):  # TODO support auth for pooling
 
     def _socket_close(self):
         """docstring for _socket_close"""
-        if self.__callback:
-            self.__callback(None, Exception('connection closed'))
-        self.__callback = None
         self.__alive = False
 
     def __stream(self,callback):
@@ -725,7 +728,7 @@ class Connection(object):  # TODO support auth for pooling
 
         return response
 
-    def _send_message(self, message,with_last_error=False,callback=None):
+    def _send_message(self, message, with_last_error=False, callback=None):
         """Say something to Mongo.
 
         Passes ConnectionFailure if callback is defined, if the message cannot be sent. Raises
@@ -740,7 +743,6 @@ class Connection(object):  # TODO support auth for pooling
           - `with_last_error`: check getLastError status after sending the
             message
         """
-
 
         def send_callback(strm):
             try:
