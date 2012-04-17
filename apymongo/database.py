@@ -17,10 +17,12 @@
 import warnings
 import functools
 
+from bson.binary import OLD_UUID_SUBTYPE
+
 from bson.code import Code
 from bson.dbref import DBRef
 from bson.son import SON
-from apymongo import helpers
+from apymongo import common, helpers
 from apymongo.collection import Collection
 from apymongo.errors import (CollectionInvalid,
                             InvalidName,
@@ -40,15 +42,15 @@ def _check_name(name):
                               "character %r" % invalid_char)
 
 
-class Database(object):
+class Database(common.BaseObject):
     """A Mongo database.
     """
 
-    def __init__(self, connection, name, js_callback=None):
+    def __init__(self, connection, name):
         """Get a database by connection and name.
 
         Raises :class:`TypeError` if `name` is not an instance of
-        :class:`basestring`. Raises
+        :class:`basestring` (:class:`str` in python 3). Raises
         :class:`~pymongo.errors.InvalidName` if `name` is not a valid
         database name.
 
@@ -59,8 +61,15 @@ class Database(object):
 
         .. mongodoc:: databases
         """
+        super(Database,
+              self).__init__(slave_okay=connection.slave_okay,
+                             read_preference=connection.read_preference,
+                             safe=connection.safe,
+                             **(connection.get_lasterror_options()))
+
         if not isinstance(name, basestring):
-            raise TypeError("name must be an instance of basestring")
+            raise TypeError("name must be an instance "
+                            "of %s" % (basestring.__name__,))
 
         _check_name(name)
 
@@ -72,7 +81,6 @@ class Database(object):
         self.__outgoing_manipulators = []
         self.__outgoing_copying_manipulators = []
         self.add_son_manipulator(ObjectIdInjector())
-        self.__system_js = SystemJS(self)
 
     def add_son_manipulator(self, manipulator):
         """Add a new son manipulator to this database.
@@ -105,7 +113,7 @@ class Database(object):
 
         .. versionadded:: 1.5
         """
-        return self.__system_js
+        return SystemJS(self)
 
     @property
     def connection(self):
@@ -126,10 +134,51 @@ class Database(object):
         """
         return self.__name
 
-    def __cmp__(self, other):
+    @property
+    def incoming_manipulators(self):
+        """List all incoming SON manipulators
+        installed on this instance.
+
+        .. versionadded:: 2.0
+        """
+        return [manipulator.__class__.__name__
+                for manipulator in self.__incoming_manipulators]
+
+    @property
+    def incoming_copying_manipulators(self):
+        """List all incoming SON copying manipulators
+        installed on this instance.
+
+        .. versionadded:: 2.0
+        """
+        return [manipulator.__class__.__name__
+                for manipulator in self.__incoming_copying_manipulators]
+
+    @property
+    def outgoing_manipulators(self):
+        """List all outgoing SON manipulators
+        installed on this instance.
+
+        .. versionadded:: 2.0
+        """
+        return [manipulator.__class__.__name__
+                for manipulator in self.__outgoing_manipulators]
+
+    @property
+    def outgoing_copying_manipulators(self):
+        """List all outgoing SON copying manipulators
+        installed on this instance.
+
+        .. versionadded:: 2.0
+        """
+        return [manipulator.__class__.__name__
+                for manipulator in self.__outgoing_copying_manipulators]
+        
+    def __eq__(self, other):
         if isinstance(other, Database):
-            return cmp((self.__connection, self.__name),
-                       (other.__connection, other.__name))
+            us = (self.__connection, self.__name)
+            them = (other.__connection, other.__name)
+            return us == them
         return NotImplemented
 
     def __repr__(self):
@@ -155,7 +204,7 @@ class Database(object):
         """
         return self.__getattr__(name)
 
-    def create_collection(self, name, options=None, **kwargs):
+    def create_collection(self, name, **kwargs):
         """Create a new :class:`~pymongo.collection.Collection` in this
         database.
 
@@ -176,19 +225,16 @@ class Database(object):
 
         :Parameters:
           - `name`: the name of the collection to create
-          - `options`: DEPRECATED options to use on the new collection
           - `**kwargs` (optional): additional keyword arguments will
             be passed as options for the create collection command
+
+        .. versionchanged:: 2.1.1+
+           Removed deprecated argument: options
 
         .. versionchanged:: 1.5
            deprecating `options` in favor of kwargs
         """
         opts = {"create": True}
-        if options is not None:
-            warnings.warn("the options argument to create_collection is "
-                          "deprecated and will be removed. please use "
-                          "kwargs instead.", DeprecationWarning)
-            opts.update(options)
         opts.update(kwargs)
 
         if name in self.collection_names():
@@ -222,15 +268,16 @@ class Database(object):
             son = manipulator.transform_outgoing(son, collection)
         return son
 
-    def command(self, command, callback=None,value=1,
-                check=True, allowable_errors=[], **kwargs):
+    def command(self, command, value=1,
+                callback=None, check=True, allowable_errors=[],
+                uuid_subtype=OLD_UUID_SUBTYPE, **kwargs):
         """Issue a MongoDB command.
 
         Send command `command` to the database and return the
         response. If `command` is an instance of :class:`basestring`
-        then the command {`command`: `value`} will be sent. Otherwise,
-        `command` must be an instance of :class:`dict` and will be
-        sent as is.
+        (:class:`str` in python 3) then the command {`command`: `value`}
+        will be sent. Otherwise, `command` must be an instance of
+        :class:`dict` and will be sent as is.
 
         Command responses will be passed to callback.
 
@@ -268,9 +315,20 @@ class Database(object):
             :class:`~pymongo.errors.OperationFailure` if there are any
           - `allowable_errors`: if `check` is ``True``, error messages
             in this list will be ignored by error-checking
+          - `uuid_subtype` (optional): The BSON binary subtype to use
+            for a UUID used in this command.
           - `**kwargs` (optional): additional keyword arguments will
             be added to the command document before it is sent
 
+        .. versionchanged:: 2.1.1+
+           Added support for `as_class` - the class you want to use for
+           the resulting documents
+        .. versionchanged:: 1.6
+           Added the `value` argument for string commands, and keyword
+           arguments for additional command options.
+        .. versionchanged:: 1.5
+           `command` can be a string in addition to a full document.
+        .. versionadded:: 1.4
 
         .. mongodoc:: commands
         """
@@ -278,43 +336,53 @@ class Database(object):
         if isinstance(command, basestring):
             command = SON([(command, value)])
 
+        extra_opts = {
+            'as_class': kwargs.pop('as_class', None),
+            'read_preference': kwargs.pop('read_preference',
+                                          self.read_preference),
+            'slave_okay': kwargs.pop('slave_okay', self.slave_okay),
+            '_must_use_master': kwargs.pop('_use_master', True),
+            '_is_command': True,
+            '_uuid_subtype': uuid_subtype
+        }
+
+        fields = kwargs.get('fields')
+        if fields is not None and not isinstance(fields, dict):
+            kwargs['fields'] = helpers._fields_list_to_dict(fields)
+
         command.update(kwargs)
 
         if callback:
             def mod_callback(result):
-            
-                 if not isinstance(result,Exception):
+                 if not isinstance(result, Exception):
                      if check:
-                         msg = "command %r failed: %%s" % command
-                         check_result = helpers._check_command_response(result, self.connection.disconnect,
-                                                    msg, allowable_errors)
+                         msg = "command %s failed: %%s" % repr(command).replace("%", "%%")
+                         helpers._check_command_response(result, self.connection.disconnect,
+                                            msg, allowable_errors)
                   
-                     callback(check_result)
+                     callback(result)
                  else:
                      callback(result)
                      
         else:       
             mod_callback = None
             
-        self["$cmd"].find_one(spec_or_id = command,callback=mod_callback,
-                                       _must_use_master=True,
-                                       _is_command=True)
+        self["$cmd"].find_one(spec_or_id = command, callback=mod_callback, **extra_opts)
 
   
 
-    def collection_names(self,callback):
+    def collection_names(self, callback):
         """Get a list of all the collection names in this database.
         """
    
         def mod_callback(results):
-
             names = [r["name"] for r in results]
             names = [n[len(self.__name) + 1:] for n in names
                      if n.startswith(self.__name + ".")]
             names = [n for n in names if "$" not in n]
             callback(names)      
         
-        self["system.namespaces"].find(callback=mod_callback,_must_use_master=True).loop()
+        self["system.namespaces"].find(callback=mod_callback, _must_use_master=True).loop()
 
 
     def drop_collection(self, name_or_collection):
@@ -330,18 +398,38 @@ class Database(object):
 
         if not isinstance(name, basestring):
             raise TypeError("name_or_collection must be an instance of "
-                            "(Collection, str, unicode)")
+                            "%s or Collection" % (basestring.__name__,))
 
         self.__connection._purge_index(self.__name, name)
 
         self.command("drop", unicode(name), allowable_errors=["ns not found"])
         
 
-    def validate_collection(self, name_or_collection,callback):
+    def validate_collection(self, name_or_collection, callback, scandata=False, full=False):
         """Validate a collection.
 
-        Passes a string of validation info to callback, or  CollectionInvalid if
+        Passes a string of validation info to callback, or CollectionInvalid if
         validation fails.
+
+        With MongoDB < 1.9 the result dict will include a `result` key
+        with a string value that represents the validation results. With
+        MongoDB >= 1.9 the `result` key no longer exists and the results
+        are split into individual fields in the result dict.
+
+        :Parameters:
+            `name_or_collection`: A Collection object or the name of a
+                                  collection to validate.
+            `scandata`: Do extra checks beyond checking the overall
+                        structure of the collection.
+            `full`: Have the server do a more thorough scan of the
+                    collection. Use with `scandata` for a thorough scan
+                    of the structure of the collection and the individual
+                    documents. Ignored in MongoDB versions before 1.9.
+
+        .. versionchanged:: 1.11
+           validate_collection previously returned a string.
+        .. versionadded:: 1.11
+           Added `scandata` and `full` options.
         """
         name = name_or_collection
         if isinstance(name, Collection):
@@ -349,19 +437,45 @@ class Database(object):
 
         if not isinstance(name, basestring):
             raise TypeError("name_or_collection must be an instance of "
-                            "(Collection, str, unicode)")
+                            "%s or Collection" % (basestring.__name__,))
 
         def mod_callback(result):
-            info = result["result"]
-            if info.find("exception") != -1 or info.find("corrupt") != -1:
-                raise CollectionInvalid("%s invalid: %s" % (name, info))
-            callback(info)          
+            valid = True
+            # Pre 1.9 results
+            if "result" in result:
+                info = result["result"]
+                if info.find("exception") != -1 or info.find("corrupt") != -1:
+                    callback(CollectionInvalid("%s invalid: %s" % (name, info)))
+            # Sharded results
+            elif "raw" in result:
+                for repl, res in result["raw"].iteritems():
+                    if "result" in res:
+                        info = res["result"]
+                        if (info.find("exception") != -1 or
+                            info.find("corrupt") != -1):
+                            callback(CollectionInvalid("%s invalid: "
+                                                "%s" % (name, info)))
+                            valid = False
+                            break
+                    elif not res.get("valid", False):
+                        valid = False
+                        break
+            # Post 1.9 non-sharded results.
+            elif not result.get("valid", False):
+                valid = False
 
-        self.command("validate", unicode(name),callback=mod_callback)
+            if not valid:
+                callback(CollectionInvalid("%s invalid: %r" % (name, result)))
+
+            callback(result)
+
+
+        self.command("validate", unicode(name),
+                     scandata=scandata, full=full, callback=mod_callback)
 
 
 
-    def profiling_level(self,callback):
+    def profiling_level(self, callback):
         """Get the database's current profiling level.
 
         Passes one of (:data:`~paymongo.OFF`,

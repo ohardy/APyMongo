@@ -20,7 +20,7 @@ from distutils.errors import DistutilsPlatformError, DistutilsExecError
 from distutils.core import Extension
 
 # Remember to change in pymongo/__init__.py as well!
-version = "0.0.1"
+version = "2.1.1.1"
 
 f = open("README.md")
 try:

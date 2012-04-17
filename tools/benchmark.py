@@ -21,8 +21,8 @@ sys.path[0:0] = [""]
 import datetime
 import cProfile
 
-from pymongo import connection
-from pymongo import ASCENDING
+from apymongo import connection
+from apymongo import ASCENDING
 
 trials = 2
 per_trial = 5000

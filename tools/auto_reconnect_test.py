@@ -19,8 +19,8 @@ import threading
 import time
 sys.path[0:0] = [""]
 
-from pymongo.errors import AutoReconnect
-from pymongo.connection import Connection
+from apymongo.errors import AutoReconnect
+from apymongo.connection import Connection
 
 db = Connection.paired(("localhost", 27018)).test
 db.test.remove({})

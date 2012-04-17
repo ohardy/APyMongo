@@ -33,7 +33,7 @@ except:
     pass
 
 try:
-    from pymongo import _cmessage
+    from apymongo import _cmessage
     sys.exit("could still import _cmessage")
 except ImportError:
     pass

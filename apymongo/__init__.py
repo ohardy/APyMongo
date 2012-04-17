@@ -29,6 +29,17 @@ from consts import GEO2D
 .. _geospatial index: http://www.mongodb.org/display/DOCS/Geospatial+Indexing
 """
 
+GEOHAYSTACK = "geoHaystack"
+"""Index specifier for a 2-dimensional `haystack index`_.
+
+.. versionadded:: 2.1
+
+.. note:: Geo-spatial indexing requires server version **>= 1.5.6+**.
+
+.. _geospatial index: http://www.mongodb.org/display/DOCS/Geospatial+Haystack+Indexing
+"""
+
+
 OFF = 0
 """No database profiling."""
 SLOW_ONLY = 1
@@ -36,13 +47,18 @@ SLOW_ONLY = 1
 ALL = 2
 """Profile all operations."""
 
-# Remember to change in setup.py as well!
-version = "0.0.1"
+version_tuple = (2, 1, 1, 1, '+')
+
+def get_version_string():
+    if version_tuple[-1] == '+':
+        return '.'.join(map(str, version_tuple[:-1])) + '+'
+    return '.'.join(map(str, version_tuple))
+
+version = get_version_string()
 """Current version of PyMongo."""
 
-Connection = APyMongo_Connection
-"""Alias for :class:`apymongo.connection.Connection`."""
-
+from apymongo.connection import Connection
+# from apymongo.replica_set_connection import ReplicaSetConnection
 
 def has_c():
     """Is the C extension installed?
@@ -50,7 +66,7 @@ def has_c():
     .. versionadded:: 1.5
     """
     try:
-        from pymongo import _cmessage
+        from apymongoo import _cmessage
         return True
     except ImportError:
         return False
