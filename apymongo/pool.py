@@ -5,6 +5,9 @@ import time
 import threading
 import weakref
 import tornado
+import functools
+from datetime import timedelta
+import Queue
 
 have_ssl = True
 try:
@@ -150,8 +153,13 @@ class ConnectionStreamPool(object):
         self.conn_timeout = conn_timeout
         self.use_ssl = use_ssl
         self.lock = threading.Lock()
+        self.lock1 = threading.Lock()
+        self.lock2 = threading.Lock()
+        self.lock3 = threading.Lock()
+        self.lock4 = threading.Lock()
         self.io_loop = io_loop
         self.streams = set()
+        self.waitings_callback = Queue.Queue()
         
     def reset(self):
         streams = None
@@ -237,22 +245,25 @@ class ConnectionStreamPool(object):
     def stream(self, callback, pair=None):
         """ get a cached connection from the pool """
         if (self._maxconnections and self._connections >= self._maxconnections):
-            raise Exception("%d connections are already equal to the max: %d" % (self._connections, self._maxconnections))
-        # connection limit not reached, get a dedicated connection
-        try:
-            # set.pop() isn't atomic in Jython, see
-            # http://bugs.jython.org/issue1854
-            self.lock.acquire()
-            stream = self.streams.pop()
-        except:
-            self.create_connection(pair, callback)
+            #TODO: See if the pool can call waiting callbacks when pool free
+            self.waitings_callback.put(callback)
+            print 'too much, waiting : ', self.waitings_callback.qsize()
         else:
-            self._check_closed(stream, pair, callback)
-        finally:
-            self.lock.release()
+            # raise Exception("%d connections are already equal to the max: %d" % (self._connections, self._maxconnections))
+        # connection limit not reached, get a dedicated connection
+            try:
+                # set.pop() isn't atomic in Jython, see
+                # http://bugs.jython.org/issue1854
+                self.lock1.acquire()
+                stream = self.streams.pop()
+            except:
+                self.create_connection(pair, callback)
+            else:
+                self.io_loop.add_callback(functools.partial(self._check_closed, stream, pair, callback))
+            finally:
+                self.lock1.release()
 
-        self._connections += 1
-        
+            self._connections += 1
 
     def get_stream(self, callback):
         def mod_callback(stream):
@@ -261,6 +272,7 @@ class ConnectionStreamPool(object):
                 raise stream
             else:
                 stream.use(callback)
+                
         self.stream(mod_callback)
         
     def use(self, stream):
@@ -289,23 +301,40 @@ class ConnectionStreamPool(object):
             logging.info('dropping connection %s uses past max usage %s' % (strm.usage_count, self._maxusage))
             strm.close()
             return
-        self.lock.acquire()
+        self.lock3.acquire()
         if strm in self.streams:
             # called via socket close on a connection in the idle cache
-            self.lock.release()
+            self.lock3.release()
             return
         try:
             if not self._maxcached or len(self.streams) < self._maxcached:
-                # the idle cache is not full, so put it there
-                self.streams.add(strm)
-                strm.last_checkout = time.time()
+                if not self.waitings_callback.empty():
+                    try:
+                        # set.pop() isn't atomic in Jython, see
+                        # http://bugs.jython.org/issue1854
+                        # self.lock2.acquire()
+                        callback = self.waitings_callback.get()
+                        print 'waiting :', self.waitings_callback.qsize()
+                    except:
+                        # self.lock2.release()
+                        self.streams.add(strm)
+                        strm.last_checkout = time.time()
+                    else:
+                        # self.lock2.release()
+                        print 'call callback : ', callback, ' with stream : ', strm
+                        callback(strm)
+
+                else:
+                    # the idle cache is not full, so put it there
+                    self.streams.add(strm)
+                    strm.last_checkout = time.time()
             else: # if the idle cache is already full,
                 logging.info('dropping connection. connection pool (%s) is full. maxcached %s' % (len(self.streams), self._maxcached))
                 strm.close() # then close the connection
             # self.lock.notify()
         finally:
             self._connections -= 1
-            self.lock.release()
+            self.lock3.release()
 
     def close(self):
         """Close all connections in the pool."""

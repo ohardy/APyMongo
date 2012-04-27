@@ -289,7 +289,7 @@ class Connection(common.BaseObject):
             0,
             0,
             0,
-            0
+            5
         )
 
         self.__document_class = document_class
@@ -663,7 +663,6 @@ class Connection(common.BaseObject):
             #                 self.__check_auth(sock_info)
             #             return sock_info
             
-        
         host, port = (self.__host, self.__port)
         if host is None or port is None:
             self.__find_node(mod_callback)
@@ -752,7 +751,6 @@ class Connection(common.BaseObject):
 
         Return the response as a document.
         """
-        raise Exception()
         response = helpers._unpack_response(response)
 
         assert response["number_returned"] == 1
@@ -814,12 +812,12 @@ class Connection(common.BaseObject):
         def send_callback(stream):
             """docstring for send_callback"""
             def mod_callback(response):
+                self.__pool.return_stream(stream)
                 if response is not None:
                     rv = self.__check_response_to_last_error(response)
                 if callback is not None:
                     callback(response)
-                self.__pool.return_stream(stream)
-                    
+   
             # sock_info = self.__socket()
             try:
                 (request_id, data) = self.__check_bson_size(message)
@@ -832,8 +830,8 @@ class Connection(common.BaseObject):
                 rv = None
                 if with_last_error:
                     self.__receive_message_on_stream(1, request_id, stream, callback=mod_callback)
-
-                mod_callback(None)
+                else:
+                    mod_callback(None)
                     
             except (ConnectionFailure, socket.error), e:
                 self.disconnect()
@@ -917,7 +915,6 @@ class Connection(common.BaseObject):
             """docstring for mod_callback"""
             def mod_callback2(response):
                 """docstring for mod_callback2"""
-                callback(response)
                 if "network_timeout" in kwargs:
                     try:
                         # Restore the socket's original timeout and return it to
@@ -929,6 +926,8 @@ class Connection(common.BaseObject):
                         pass
                 else:
                     self.__pool.return_stream(stream)
+                    
+                callback(response)
                 
             try:
                 if "network_timeout" in kwargs:

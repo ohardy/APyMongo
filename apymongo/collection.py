@@ -321,11 +321,11 @@ class Collection(common.BaseObject):
         
         self.__database.connection._send_message(
             message.insert(self.__full_name, docs,
-                           check_keys, safe, kwargs, continue_on_error, self.__uuid_subtype), safe,callback=mod_callback)
+                           check_keys, safe, kwargs, continue_on_error, self.__uuid_subtype), safe, callback=mod_callback)
     
     
     def update(self, spec, document, upsert=False, manipulate=False,
-               safe=False, multi=False, callback=None, **kwargs):
+               safe=False, multi=False, _check_keys=False, callback=None, **kwargs):
         """Update a document(s) in this collection.
         
         Passes :class:`TypeError` if either `spec` or `document` is
@@ -492,7 +492,7 @@ class Collection(common.BaseObject):
             message.delete(self.__full_name, spec_or_id,
                            safe, kwargs, self.__uuid_subtype), safe, callback=callback)
     
-    def find_one(self, spec_or_id = None, callback=None,  *args, **kwargs):
+    def find_one(self, spec_or_id = None, callback=None, *args, **kwargs):
         """Get a single document from the database.
         
         All arguments to :meth:`find` are also valid arguments for
