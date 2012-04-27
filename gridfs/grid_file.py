@@ -68,10 +68,11 @@ def _create_property(field_name, docstring,
         if field_name == 'length':
             return self._file.get(field_name, 0)
         return self._file.get(field_name, None)
-
+    
+    @gen.engine
     def setter(self, value):
         if self._closed:
-            self._coll.files.update({"_id": self._file["_id"]},
+            _ = yield gen.Task(self._coll.files.update,{"_id": self._file["_id"]},
                                     {"$set": {field_name: value}}, safe=True)
         self._file[field_name] = value
 
@@ -178,53 +179,64 @@ class GridIn(object):
         if name in self._file:
             return self._file[name]
         raise AttributeError("GridIn object has no attribute '%s'" % name)
-
+    
+    @gen.engine
     def __setattr__(self, name, value):
         object.__setattr__(self, name, value)
         if self._closed:
-            self._coll.files.update({"_id": self._file["_id"]},
+            _ = yield gen.Task(self._coll.files.update, {"_id": self._file["_id"]},
                                     {"$set": {name: value}}, safe=True)
 
-    def __flush_data(self, data):
+    def __flush_data(self, data, callback):
         """Flush `data` to a chunk.
         """
         if not data:
-            return
+            callback()
         assert(len(data) <= self.chunk_size)
 
         chunk = {"files_id": self._file["_id"],
                  "n": self._chunk_number,
                  "data": Binary(data)}
+        
+        def mod_callback(response):
+            self._chunk_number += 1
+            self._position += len(data)
+            callback()
+            
+        self._chunks.insert(chunk, callback=mod_callback)
 
-        self._chunks.insert(chunk)
-        self._chunk_number += 1
-        self._position += len(data)
-
-    def __flush_buffer(self):
+    def __flush_buffer(self, callback):
         """Flush the buffer contents out to a chunk.
         """
-        self.__flush_data(self._buffer.getvalue())
-        self._buffer.close()
-        self._buffer = StringIO()
+        def mod_callback():
+            self._buffer.close()
+            object.__setattr__(self, "_buffer", StringIO())
+            # self._buffer = StringIO()
+            callback()
+            
+        self.__flush_data(self._buffer.getvalue(), mod_callback)
 
     def __flush(self, callback):
         """Flush the file to the database.
         """
-        self.__flush_buffer()
-        
-        def mod_callback(md5):
-            """docstring for mod_callback"""
-            self._file["md5"] = md5
-            self._file["length"] = self._position
-            self._file["uploadDate"] = datetime.datetime.utcnow()
+        def mod_callback():
+            def mod_callback2(md5):
+                """docstring for mod_callback"""
+                self._file["md5"] = md5
+                self._file["length"] = self._position
+                self._file["uploadDate"] = datetime.datetime.utcnow()
             
-            self._coll.files.insert(self._file, callback=callback, safe=True)
-            # except DuplicateKeyError:
-                # raise FileExists("file with _id %r already exists" % self._id)
+                self._coll.files.insert(self._file, callback=callback, safe=True)
+                # except DuplicateKeyError:
+                    # raise FileExists("file with _id %r already exists" % self._id)
             
 
-        self._coll.database.command("filemd5", self._id,
-                                          root=self._coll.name, callback=mod_callback)
+            self._coll.database.command("filemd5", self._id,
+                                              root=self._coll.name, callback=mod_callback2)
+            
+        self.__flush_buffer(mod_callback)
+        
+        
 
     def close(self, callback):
         """Flush the file and close it.
@@ -237,8 +249,9 @@ class GridIn(object):
             object.__setattr__(self, "_closed", True)
         else:
             callback(None)
-
-    def write(self, data):
+    
+    @gen.engine
+    def write(self, data, callback):
         """Write data to the file. There is no return value.
 
         `data` can be either a string of bytes or a file-like object
@@ -290,20 +303,24 @@ class GridIn(object):
                 self._buffer.write(to_write)
                 if len(to_write) < space:
                     return # EOF or incomplete
-            self.__flush_buffer()
+            _ = yield gen.Task(self.__flush_buffer)
         to_write = read(self.chunk_size)
         while to_write and len(to_write) == self.chunk_size:
-            self.__flush_data(to_write)
+            _ = yield gen.Task(self.__flush_data, to_write)
             to_write = read(self.chunk_size)
         self._buffer.write(to_write)
-
-    def writelines(self, sequence):
+        callback()
+    
+    @gen.engine
+    def writelines(self, sequence, callback):
         """Write a sequence of strings to the file.
 
         Does not add seperators.
         """
         for line in sequence:
-            self.write(line)
+            _ = yield gen.Task(self.write, line)
+            
+        callback()
 
     def __enter__(self):
         """Support for the context manager protocol.
@@ -342,7 +359,8 @@ class GridOut(object):
         if file_document is not None:
             mod_callback(file_document)
         else:
-            files.find_one({"_id": file_id}, callback=mod_callback)
+            from bson.objectid import ObjectId
+            files.find_one({"_id": ObjectId(file_id)}, callback=mod_callback)
         
     def __init__(self, root_collection, file_id=None, file_document=None):
         """Read a file from GridFS
@@ -398,6 +416,15 @@ class GridOut(object):
         if name in self._file:
             return self._file[name]
         raise AttributeError("GridOut object has no attribute '%s'" % name)
+        
+    def __getitem__(self, name):
+        return getattr(self, name)
+        
+    def get(self, name, default=None):
+        """docstring for get"""
+        if name in self._file:
+            return self._file[name]
+        return default
     
     @gen.engine
     def read(self, callback, size=-1):

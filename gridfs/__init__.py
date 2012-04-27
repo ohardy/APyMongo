@@ -112,19 +112,19 @@ class GridFS(object):
         .. versionadded:: 1.6
         """
         grid_file = GridIn(self.__collection, **kwargs)
-
-        grid_file.write(data)
         
-        def mod_callback(response):
-            """docstring for mod_callback"""
-            # def mod_callback2(response):
-            if isinstance(response, Exception):
-                callback(response)
-            else:
-                callback(grid_file._id)
+        def mod_callback():
+            def mod_callback2(response):
+                """docstring for mod_callback"""
+                # def mod_callback2(response):
+                if isinstance(response, Exception):
+                    callback(response)
+                else:
+                    callback(grid_file._id)
 
-        grid_file.close(mod_callback)
-            
+            grid_file.close(mod_callback2)
+
+        grid_file.write(data, mod_callback)
 
     def get(self, file_id, callback):
         """Get a file from GridFS by ``"_id"``.
