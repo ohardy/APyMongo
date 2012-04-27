@@ -226,6 +226,10 @@ class ObjectId(object):
 
     def __str__(self):
         return binascii.hexlify(self.__id).decode()
+        
+    def __unicode__(self):
+        """docstring for __unicode__"""
+        return str(self)
 
     def __repr__(self):
         return "ObjectId('%s')" % (str(self),)
@@ -233,6 +237,8 @@ class ObjectId(object):
     def __eq__(self, other):
         if isinstance(other, ObjectId):
             return self.__id == other.__id
+        elif isinstance(other, (unicode, str)):
+            return self.__id == ObjectId(other).__id
         return NotImplemented
 
     def __lt__(self, other):
