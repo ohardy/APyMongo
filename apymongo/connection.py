@@ -772,6 +772,7 @@ class Connection(common.BaseObject):
                 raise OperationFailure(error["err"], error["code"])
         else:
             raise OperationFailure(error["err"])
+        return response
             
     def __check_bson_size(self, message):
         """Make sure the message doesn't include BSON documents larger
@@ -814,7 +815,7 @@ class Connection(common.BaseObject):
             def mod_callback(response):
                 self.__pool.return_stream(stream)
                 if response is not None:
-                    rv = self.__check_response_to_last_error(response)
+                    response = self.__check_response_to_last_error(response)
                 if callback is not None:
                     callback(response)
    

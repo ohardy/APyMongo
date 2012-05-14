@@ -121,9 +121,8 @@ class GridFS(object):
                     callback(response)
                 else:
                     callback(grid_file._id)
-
+            
             grid_file.close(mod_callback2)
-
         grid_file.write(data, mod_callback)
 
     def get(self, file_id, callback):
@@ -185,15 +184,21 @@ class GridFS(object):
         if filename is not None:
             query["filename"] = filename
 
-        cursor = self.__files.find(query)
+        cursor = self.__files.find(spec=query)
         if version < 0:
             skip = abs(version) - 1
             cursor.limit(-1).skip(skip).sort("uploadDate", DESCENDING)
         else:
             cursor.limit(-1).skip(version).sort("uploadDate", ASCENDING)
         try:
-            grid_file = cursor.next()
-            return GridOut(self.__collection, file_document=grid_file)
+            def mod_callback(response):
+                if len(response) > 0:
+                    GridOut.instance_for(self.__collection, callback, file_document=response[0])
+                else:
+                    callback(None)
+
+            cursor.loop(mod_callback)
+
         except StopIteration:
             raise NoFile("no version %d for filename %r" % (version, filename))
 

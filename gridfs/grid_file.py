@@ -192,18 +192,19 @@ class GridIn(object):
         """
         if not data:
             callback()
-        assert(len(data) <= self.chunk_size)
+        else:
+            assert(len(data) <= self.chunk_size)
 
-        chunk = {"files_id": self._file["_id"],
-                 "n": self._chunk_number,
-                 "data": Binary(data)}
+            chunk = {"files_id": self._file["_id"],
+                     "n": self._chunk_number,
+                     "data": Binary(data)}
         
-        def mod_callback(response):
-            self._chunk_number += 1
-            self._position += len(data)
-            callback()
+            def mod_callback(response):
+                self._chunk_number += 1
+                self._position += len(data)
+                callback()
             
-        self._chunks.insert(chunk, callback=mod_callback)
+            self._chunks.insert(chunk, callback=mod_callback)
 
     def __flush_buffer(self, callback):
         """Flush the buffer contents out to a chunk.
@@ -211,9 +212,8 @@ class GridIn(object):
         def mod_callback():
             self._buffer.close()
             object.__setattr__(self, "_buffer", StringIO())
-            # self._buffer = StringIO()
             callback()
-            
+        
         self.__flush_data(self._buffer.getvalue(), mod_callback)
 
     def __flush(self, callback):
@@ -225,12 +225,11 @@ class GridIn(object):
                 self._file["md5"] = md5
                 self._file["length"] = self._position
                 self._file["uploadDate"] = datetime.datetime.utcnow()
-            
+                
                 self._coll.files.insert(self._file, callback=callback, safe=True)
                 # except DuplicateKeyError:
                     # raise FileExists("file with _id %r already exists" % self._id)
             
-
             self._coll.database.command("filemd5", self._id,
                                               root=self._coll.name, callback=mod_callback2)
             
@@ -245,8 +244,11 @@ class GridIn(object):
         :meth:`close` more than once is allowed.
         """
         if not self._closed:
-            self.__flush(callback)
-            object.__setattr__(self, "_closed", True)
+            def mod_callback(response):
+                """docstring for mod_callback"""
+                object.__setattr__(self, "_closed", True)
+                callback(response)
+            self.__flush(mod_callback)
         else:
             callback(None)
     
@@ -360,7 +362,9 @@ class GridOut(object):
             mod_callback(file_document)
         else:
             from bson.objectid import ObjectId
-            files.find_one({"_id": ObjectId(file_id)}, callback=mod_callback)
+            if not isinstance(file_id, ObjectId):
+                file_id = ObjectId(file_id)
+            files.find_one({"_id": file_id}, callback=mod_callback)
         
     def __init__(self, root_collection, file_id=None, file_document=None):
         """Read a file from GridFS
