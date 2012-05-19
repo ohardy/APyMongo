@@ -795,7 +795,10 @@ class Cursor(object):
                                                allowable_errors=["ns missing"],
                                                **command)
 
-    
+    def __call__(self, callback=None):
+        """docstring for __call__"""
+        self.loop(callback)
+        
     def loop(self, callback=None):
         """
            Replacement of "next" method in the asynchronous context.
