@@ -34,6 +34,7 @@ try:
     _use_c = True
 except ImportError:
     _use_c = False
+_use_c = False
 from apymongo.errors import InvalidOperation
 
 

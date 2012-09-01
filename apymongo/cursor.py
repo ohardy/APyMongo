@@ -24,6 +24,8 @@ from apymongo.preference import ReadPreference
 from apymongo.errors import (InvalidOperation,
                             AutoReconnect)
 
+from tornado import gen
+
 _QUERY_OPTIONS = {
     "tailable_cursor": 2,
     "slave_okay": 4,
@@ -693,6 +695,12 @@ class Cursor(object):
         
         callback = self.loop
         
+        def mod_callback(response):
+            """docstring for mod_callback"""
+            if not self.__id:
+                self.__killed = True
+                    
+            callback(response)
         if self.__id is None:
             ntoreturn = self.__batch_size
             if self.__limit:
@@ -700,12 +708,6 @@ class Cursor(object):
                     ntoreturn = min(self.__limit, self.__batch_size)
                 else:
                     ntoreturn = self.__limit
-            def mod_callback(response):
-                """docstring for mod_callback"""
-                if not self.__id:
-                    self.__killed = True
-                    
-                callback(response)
             self.__send_message(
                 message.query(self.__query_options(),
                               self.__collection.full_name,
@@ -723,7 +725,7 @@ class Cursor(object):
             
             self.__send_message(
                 message.get_more(self.__collection.full_name,
-                                 limit, self.__id), callback)
+                                 limit, self.__id), mod_callback)
     
     
     @property

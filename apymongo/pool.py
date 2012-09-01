@@ -213,6 +213,7 @@ class ConnectionStreamPool(object):
                 
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
                 # sock = socket.socket(af, socktype, proto)
+                print self.conn_timeout
                 sock.settimeout(self.conn_timeout or 10.0)
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 sock.setblocking(0)
@@ -221,6 +222,7 @@ class ConnectionStreamPool(object):
                 break
 
             except socket.error, e:
+                print e
                 err = e
                 if sock is not None:
                     sock.close()
